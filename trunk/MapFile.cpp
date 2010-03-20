@@ -72,11 +72,51 @@ struct Section
 
 typedef std::vector< Section > SectionVector;
 
+struct Address
+{
+	Address(void)
+	{
+		mLength = 0;
+		mCount = 0;
+	}
+	Address(const char *objectName,const char *functionName)
+	{
+		mCount = 1;
+		mLength = 0;
+		mObjectName = objectName;
+		mFunctionName = functionName;
+	}
+
+	bool operator < (const Address &a) const
+	{
+		return a.mLength < mLength;
+	}
+
+    void reportObject(void)
+    {
+		printf("%12s : %10s : %s\n", NVSHARE::formatNumber(mLength),NVSHARE::formatNumber(mCount), mObjectName.c_str() );
+    }
+
+    void reportFunction(void)
+    {
+		printf("%12s : %10s : %s\n", NVSHARE::formatNumber(mLength), NVSHARE::formatNumber(mCount), mFunctionName.c_str() );
+    }
+
+	unsigned int mCount;
+	unsigned int mLength;
+	std::string  mObjectName;
+	std::string  mFunctionName;
+};
+
+typedef std::map< std::string , Address > AddressMap;
+typedef std::vector< Address > AddressVector;
+
 class MapFile : public NVSHARE::InPlaceParserInterface
 {
 public:
 	MapFile(const char *fname)
 	{
+		mHaveLastAddress = false;
 		mLastSection = 0;
 		mLastAddress = 0;
 
@@ -97,7 +137,42 @@ public:
 		printf("Total Code:      %12s\n", NVSHARE::formatNumber(total_code));
 		printf("Total Data:      %12s\n", NVSHARE::formatNumber(total_data));
 		printf("Total Code+Data: %12s\n", NVSHARE::formatNumber(total));
-
+		printf("=====================================\n");
+		printf("Found %d unique objects.\n", mByObject.size() );
+		printf("=====================================\n");
+		printf("  Size           Count            Object Name\n");
+		AddressVector objects;
+		for (AddressMap::iterator i=mByObject.begin(); i!=mByObject.end(); ++i)
+		{
+			objects.push_back( (*i).second );
+		}
+		std::sort( objects.begin(), objects.end() );
+		total = 0;
+		for (AddressVector::iterator i=objects.begin(); i!=objects.end(); ++i)
+		{
+			(*i).reportObject();
+			total+=(*i).mLength;
+		}
+		printf("=====================================\n");
+		printf("Total Size: %s\n", NVSHARE::formatNumber(total));
+		printf("=====================================\n");
+		printf("Found %d unique functions.\n", mByFunction.size() );
+		printf("=====================================\n");
+		printf("  Size           Count            Function Name\n");
+		AddressVector functions;
+		for (AddressMap::iterator i=mByFunction.begin(); i!=mByFunction.end(); ++i)
+		{
+			functions.push_back( (*i).second );
+		}
+		std::sort( functions.begin(), functions.end() );
+		total = 0;
+		for (AddressVector::iterator i=functions.begin(); i!=functions.end(); ++i)
+		{
+			(*i).reportFunction();
+			total+=(*i).mLength;
+		}
+		printf("=====================================\n");
+		printf("Total Size: %s\n", NVSHARE::formatNumber(total));
 	}
 
   	virtual int ParseLine(int lineno,int argc,const char **argv)   // return TRUE to continue parsing, return FALSE to abort parsing process
@@ -133,6 +208,7 @@ public:
 					unsigned int section = NVSHARE::GetHEX(address,&next);
 					unsigned int adr = 0;
 					unsigned int len = 0;
+
 					if ( next )
 					{
 						adr     = NVSHARE::GetHEX(next+1,0);
@@ -157,9 +233,57 @@ public:
 						name = scratch;
 					}
 
-					const char *objName = argv[3];
+					char objectName[2048];
+					objectName[0] = 0;
+					int index = 3;
+					if ( strcmp(argv[3],"f") == 0 )
+					{
+						index++;
+						if ( index < argc && strcmp(argv[4],"i") == 0 )
+						{
+							index++;
+						}
+					}
 
-					printf("%12s : %-50s : %s\n", NVSHARE::formatNumber(len), objName, name );
+					for (int i=index; i<argc; i++)
+					{
+						strcat(objectName,argv[i]);
+					}
+
+					Address _adr(objectName,name);
+					mAddress.mLength = len;
+
+
+					if ( mHaveLastAddress )
+					{
+						AddressMap::iterator found = mByObject.find( mAddress.mObjectName );
+						if ( found == mByObject.end() )
+						{
+							mByObject[ mAddress.mObjectName ] = mAddress;
+						}
+						else
+						{
+							(*found).second.mLength+=len;
+							(*found).second.mCount++;
+						}
+
+						found = mByFunction.find( mAddress.mFunctionName );
+
+						if ( found == mByFunction.end() )
+						{
+							mByFunction[ mAddress.mFunctionName ] = mAddress;
+						}
+						else
+						{
+							(*found).second.mLength+=len;
+							(*found).second.mCount++;
+						}
+					}
+
+					mAddress = _adr;
+					mHaveLastAddress = true;
+
+
 				}
 				break;
 			case MFS_STATIC_SYMBOLS:
@@ -277,6 +401,10 @@ public:
 	SectionVector	mSections;
 	unsigned int	mLastSection;
 	unsigned int	mLastAddress;
+	AddressMap      mByObject;
+	AddressMap      mByFunction;
+	bool			mHaveLastAddress;
+	Address			mAddress;
 };
 
 void main(int argc,const char **argv)
