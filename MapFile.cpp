@@ -18,6 +18,79 @@
 
 #pragma warning(disable:4996)
 
+class MapFile;
+struct SectionBase;
+
+struct SubSectionData
+{
+	unsigned int mSection;
+	unsigned int mSectionSize;
+	const char * mSubSectionName;
+	const char * mClassName;
+	unsigned int mAddressCount;
+	unsigned int mAddressSize;
+
+	void addToTable(NVSHARE::HtmlTable *table)
+	{
+		table->addColumn(mSection);
+		table->addColumn(mSectionSize);
+		table->addColumn(mSubSectionName);
+		table->addColumn(mClassName);
+		table->addColumn(mAddressCount);
+		table->addColumn(mAddressSize);
+		table->nextRow();
+	}
+};
+
+struct ObjectData
+{
+	ObjectData(void)
+	{
+		mSection = 0;
+		mSectionSize = 0;
+		mSubSectionName = "";
+		mClassName = "";
+		mObjectSize = 0;
+		mObjectAddressCount = 0;
+		mObjectName = "";
+		mObjectFunctionCount = 0;
+	}
+	unsigned int mSection;
+	unsigned int mSectionSize;
+	const char * mSubSectionName;
+	const char * mClassName;
+	int mObjectSize;
+	unsigned int mObjectAddressCount;
+	const char * mObjectName;
+	unsigned int mObjectFunctionCount;
+
+	void addToTable(NVSHARE::HtmlTable *table)
+	{
+		table->addColumn(mSection);
+		table->addColumn(mSectionSize);
+		table->addColumn(mSubSectionName);
+		table->addColumn(mClassName);
+		table->addColumn(mObjectSize);
+		table->addColumn(mObjectAddressCount);
+		table->addColumn(mObjectName);
+		table->addColumn(mObjectFunctionCount);
+		table->nextRow();
+	}
+};
+
+struct FunctionData
+{
+	unsigned int mSection;
+	unsigned int mFunctionSize;
+	unsigned int mFunctionCount;
+	const char * mFunctionName;
+	const char * mObjectName;
+};
+
+typedef std::vector< SubSectionData > SubSectionDataVector;
+typedef std::vector< ObjectData > ObjectDataVector;
+typedef std::vector< FunctionData > FunctionDataVector;
+
 enum MapFileState
 {
 	MFS_BEGIN,
@@ -33,16 +106,136 @@ enum MapFileState
 class BasicAddress
 {
 public:
+	BasicAddress(void)
+	{
+		mMatched = false;
+	}
 	unsigned int mAddress;
 	unsigned int mSection;
 	std::string  mFunctionName;
 	std::string  mObjectName;
 	unsigned int mLength;
+	bool	     mMatched;
 };
 
 typedef std::vector< BasicAddress > BasicAddressVector;
 
 typedef std::vector< std::string > StringVector;
+
+const char * getUndecoratedName(const char *name)
+{
+	static char scratch[1024];
+	if ( name[0] == '?' )
+	{
+		UnDecorateSymbolName( name, scratch, 1024, 0);
+		name = scratch;
+	}
+	return name;
+}
+
+struct SectionData
+{
+	SectionData(void)
+	{
+		mMatching = 0;
+		mSecondMap = false;
+	}
+	~SectionData(void)
+	{
+		delete mMatching;
+	}
+
+	unsigned int	mSection;
+	unsigned int	mTotalLength;
+	unsigned int	mTotalCode;
+	unsigned int	mTotalData;
+	unsigned int	mSectionCount;
+	unsigned int	mTotalCount;
+	unsigned int	mTotal;
+	bool			mSecondMap;
+
+
+	void	addToDualTable(NVSHARE::HtmlTable *table)
+	{
+		table->addColumn(mSection);
+
+		int sizeDiff = mTotalLength;
+		int sectionDiff = mSectionCount;
+		if ( mMatching )
+		{
+			sizeDiff = (int)mMatching->mTotalLength - (int)mTotalLength;
+			sectionDiff = (int)mMatching->mSectionCount - (int)mSectionCount;
+		}
+   		table->addColumn(sizeDiff);
+   		table->addColumn(sectionDiff);
+
+		if ( mMatching || !mSecondMap )
+		{
+    		table->addColumn(mTotalLength);
+    		table->addColumn(mTotalCode);
+    		table->addColumn(mTotalData);
+    		table->addColumn(mSectionCount);
+    		table->addColumn(mTotalCount);
+    		table->addColumn(mTotal);
+    	}
+    	else
+    	{
+    		table->addColumn(0);
+    		table->addColumn(0);
+    		table->addColumn(0);
+    		table->addColumn(0);
+    		table->addColumn(0);
+    		table->addColumn(0);
+    	}
+    	if ( mMatching )
+    	{
+    		table->addColumn(mMatching->mTotalLength);
+    		table->addColumn(mMatching->mTotalCode);
+    		table->addColumn(mMatching->mTotalData);
+    		table->addColumn(mMatching->mSectionCount);
+    		table->addColumn(mMatching->mTotalCount);
+    		table->addColumn(mMatching->mTotal);
+    	}
+    	else
+    	{
+    		table->addColumn(0);
+    		table->addColumn(0);
+    		table->addColumn(0);
+    		table->addColumn(0);
+    		table->addColumn(0);
+    		table->addColumn(0);
+    	}
+
+		table->nextRow();
+	}
+
+	void	addToTable(NVSHARE::HtmlTable *table)
+	{
+		table->addColumn(mSection);
+		table->addColumn(mTotalLength);
+		table->addColumn(mTotalCode);
+		table->addColumn(mTotalData);
+		table->addColumn(mSectionCount);
+		table->addColumn(mTotalCount);
+		table->addColumn(mTotal);
+
+		table->nextRow();
+
+	}
+
+	bool addMatching(const SectionData &sd)
+	{
+		bool ret = false;
+		if ( sd.mSection == mSection )
+		{
+			mMatching = new SectionData;
+			*mMatching = sd;
+			ret = true;
+		}
+		return ret;
+	}
+	SectionData	*mMatching;
+};
 
 struct ByType
 {
@@ -126,24 +319,26 @@ struct Section
 		return ret;
 	}
 
-	void report(NVSHARE::HtmlTable *table)
+	void report(SubSectionDataVector &slist)
 	{
 		unsigned int total = 0;
    		for (BasicAddressVector::iterator i=mAddresses.begin(); i!=mAddresses.end(); i++)
    		{
    			total+=(*i).mLength;
    		}
-		table->addColumn(mLength);
-		table->addColumn(mName);
-		table->addColumn(mClassName);
-		table->addColumn(mAddresses.size());
-		table->addColumn(total);
-		table->nextRow();
+
+		SubSectionData sd;
+		sd.mSection = mSection;
+		sd.mSectionSize = mLength;
+		sd.mSubSectionName = mName;
+		sd.mClassName = mClassName;
+		sd.mAddressCount = mAddresses.size();
+		sd.mAddressSize  = total;
+		slist.push_back(sd);
 	}
 
-	void reportDetails(unsigned int section,NVSHARE::HtmlDocument *document)
+	void reportDetails(unsigned int section,FunctionDataVector &flist,ObjectDataVector &olist)
 	{
-#if 0
 		{
     		ByTypeMap byFunction;
 
@@ -165,24 +360,21 @@ struct Section
     			}
     		}
 
-    		char scratch[2048];
-    		sprintf(scratch,"Details for section %d subsection: %s class name: %s with %d FUNCTIONS total size of %s", section, mName, mClassName, byFunction.size(), NVSHARE::formatNumber(mLength) );
-    		NVSHARE::HtmlTable *table = document->createHtmlTable(scratch);
-    		table->addHeader("Size,Count,Function Name,Object Name");
-    		table->addSort("Sorted by size",1,false,0,false);
     		for (ByTypeMap::iterator i=byFunction.begin(); i!=byFunction.end(); ++i)
     		{
     			ByType &bt = (*i).second;
-    			table->addColumn( bt.mLength );
-    			table->addColumn( bt.mCount );
-    			table->addColumn( (*i).first.c_str() );
-    			table->addColumn( bt.mName.c_str() );
-    			table->nextRow();
-    		}
-    		table->computeTotals();
 
+				FunctionData fd;
+				fd.mSection = section;
+				fd.mFunctionSize = bt.mLength;
+				fd.mFunctionCount = bt.mCount;
+				fd.mFunctionName = (*i).first.c_str();
+				fd.mObjectName   = bt.mName.c_str();
+
+				flist.push_back(fd);
+
+    		}
     	}
-#endif
 
 		{
     		ByTypeMap byObject;
@@ -207,22 +399,23 @@ struct Section
     			}
     		}
 
-    		char scratch[2048];
-    		sprintf(scratch,"Details for section %d subsection: %s class name: %s with %d OBJECTS total size of %s", section, mName, mClassName, byObject.size(), NVSHARE::formatNumber(mLength) );
-    		NVSHARE::HtmlTable *table = document->createHtmlTable(scratch);
-    		table->addHeader("Size,Count,Object Name,Function Count");
-    		table->addSort("Sorted by size",1,false,0,false);
+
     		for (ByTypeMap::iterator i=byObject.begin(); i!=byObject.end(); ++i)
     		{
     			ByType &bt = (*i).second;
-    			table->addColumn( bt.mLength );
-    			table->addColumn( bt.mCount );
-    			table->addColumn( (*i).first.c_str() );
-				table->addColumn( bt.mFunctions.size() );
-    			table->nextRow();
-    		}
-    		table->computeTotals();
 
+				ObjectData od;
+
+				od.mSection			= section;
+				od.mSectionSize		= mLength;
+				od.mSubSectionName	= mName;
+				od.mClassName		= mClassName;
+				od.mObjectSize		= bt.mLength;
+				od.mObjectAddressCount = bt.mCount;
+				od.mObjectName = (*i).first.c_str();
+				od.mObjectFunctionCount = bt.mFunctions.size();
+				olist.push_back(od);
+    		}
     	}
 
 
@@ -235,6 +428,22 @@ struct Section
    		{
    			total+=(*i).mLength;
    		}
+	}
+
+	BasicAddress * findBasicAddress(const BasicAddress &ba)
+	{
+		BasicAddress *ret = 0;
+		for (BasicAddressVector::iterator i=mAddresses.begin(); i!=mAddresses.end(); ++i)
+		{
+			BasicAddress *b = &(*i);
+			if ( strcmp(b->mFunctionName.c_str(),ba.mFunctionName.c_str()) == 0 &&
+				 strcmp(b->mObjectName.c_str(),ba.mObjectName.c_str()) == 0 )
+			{
+				ret = b;
+				break;
+			}
+		}
+		return ret;
 	}
 
 	unsigned int		mLength;
@@ -251,6 +460,12 @@ struct SectionBase
 {
 	SectionBase(void)
 	{
+
+	}
+
+	SectionBase(unsigned int sectionNumber)
+	{
+		mSectionNumber = sectionNumber;
 		mTotalLength = 0;
 		mTotalCode = 0;
 		mTotalData = 0;
@@ -280,7 +495,7 @@ struct SectionBase
 		found = true;
 	}
 
-	void reportSections(unsigned int section,NVSHARE::HtmlTable *table)
+	void reportSections(unsigned int section,SectionData &sd)
 	{
 		unsigned int total=0;
 		unsigned int total_count=0;
@@ -289,35 +504,44 @@ struct SectionBase
 			(*i).getTotals(total,total_count);
 		}
 
-		table->addColumn(section);
-		table->addColumn(mTotalLength);
-		table->addColumn(mTotalCode);
-		table->addColumn(mTotalData);
-		table->addColumn(mSections.size());
-		table->addColumn(total_count);
-		table->addColumn(total);
+		sd.mSection 	= section;
+		sd.mTotalLength = mTotalLength;
+		sd.mTotalCode   = mTotalCode;
+		sd.mTotalData   = mTotalData;
+		sd.mSectionCount = mSections.size();
+		sd.mTotalCount   = total_count;
+		sd.mTotal        = total;
 
-		table->nextRow();
 	}
 
-	void reportDetails(unsigned int section,NVSHARE::HtmlDocument *document)
+	void reportDetails(unsigned int section,SubSectionDataVector &slist,ObjectDataVector &olist,FunctionDataVector &flist)
 	{
-		char scratch[2048];
-		sprintf(scratch,"Details for section %d with %d subsections.", section, mSections.size() );
-		NVSHARE::HtmlTable *table = document->createHtmlTable(scratch);
-		table->addHeader("Size,Sub-Section Name,Class Name,Address Count,Address Size");
-		table->addSort("Sorted by subsection size", 1, false, 0, false );
 		for (SectionVector::iterator i=mSections.begin(); i!=mSections.end(); i++)
 		{
-			(*i).report(table);
+			(*i).report(slist);
 		}
-		table->computeTotals();
 		for (SectionVector::iterator i=mSections.begin(); i!=mSections.end(); i++)
 		{
-			(*i).reportDetails(section,document);
+			(*i).reportDetails(section,flist,olist);
 		}
 	}
 
+	Section * findSection(const Section &section)
+	{
+		Section *ret = 0;
+		for (SectionVector::iterator i=mSections.begin(); i!=mSections.end(); ++i)
+		{
+			Section &s = (*i);
+			if ( strcmp(s.mName,section.mName) == 0 )
+			{
+				ret = &s;
+				break;
+			}
+		}
+		return ret;
+	}
+
+	unsigned int    mSectionNumber;
 	unsigned int    mTotalLength;
 	unsigned int    mTotalCode;
 	unsigned int    mTotalData;
@@ -326,17 +550,94 @@ struct SectionBase
 
 typedef stdext::hash_map< unsigned int, SectionBase > SectionBaseMap;
 
-class MapFile : public NVSHARE::InPlaceParserInterface
+typedef std::vector< SectionData > SectionDataVector;
+
+class MapFile : public NVSHARE::InPlaceParserInterface, public NVSHARE::InPlaceParser
 {
 public:
 	MapFile(const char *fname)
 	{
-
-
-		NVSHARE::InPlaceParser ipp(fname);
+		NVSHARE::InPlaceParser::SetFile(fname);
 		mState = MFS_BEGIN;
-		ipp.Parse(this);
+		NVSHARE::InPlaceParser::Parse(this);
+	}
 
+	// generate a report which represents a difference between two map files...
+	void generateReport(MapFile &mf)
+	{
+		NVSHARE::HtmlTableInterface *html = NVSHARE::getHtmlTableInterface();
+		char scratch[2048];
+		sprintf(scratch,"Executable: %s %s contains %d sections.", mExeName.c_str(), mTimeStamp.c_str(), mSections.size() );
+		mDocument = html->createHtmlDocument(scratch);
+
+		NVSHARE::HtmlTable *table = mDocument->createHtmlTable("Section Sizes");
+
+		table->addHeader("Section Number,Size Diff,Sub-Section Diff,Section SizeA,Code SizeA,Data SizeA,Sub-Section CountA,Address CountA,Address SizeA,Section SizeB,Code SizeB,Data SizeB,Sub-Section CountB,Address CountB,Address SizeB");
+
+		table->addSort("Sorted by Section Size", 2, false, 0, false );
+
+		SectionDataVector dlist;
+
+		for (SectionBaseMap::iterator i=mSections.begin(); i!=mSections.end(); ++i)
+		{
+			SectionBase &s = (*i).second;
+			SectionData sd;
+			s.reportSections((*i).first,sd);
+			dlist.push_back(sd);
+		}
+
+		for (SectionBaseMap::iterator i=mf.mSections.begin(); i!=mf.mSections.end(); ++i)
+		{
+			SectionBase &s = (*i).second;
+			SectionData sd;
+			s.reportSections((*i).first,sd);
+
+			bool matched = false;
+
+			for (SectionDataVector::iterator j=dlist.begin(); j!=dlist.end(); ++j)
+			{
+				if ( (*j).addMatching(sd) )
+				{
+					matched = true;
+					break;
+				}
+			}
+			if ( !matched )
+			{
+				sd.mSecondMap = true;
+				dlist.push_back(sd);
+			}
+		}
+
+
+		for (SectionDataVector::iterator j=dlist.begin(); j!=dlist.end(); ++j)
+		{
+			(*j).addToDualTable(table);
+		}
+
+		table->excludeTotals(1);
+		table->computeTotals();
+
+
+		size_t len;
+		const char *mem = mDocument->saveDocument(len,NVSHARE::HST_SIMPLE_HTML);
+		if ( mem )
+		{
+			printf("Saving to '%s'\n", "output.html" );
+			FILE *fph = fopen("output.html", "wb");
+			if ( fph )
+			{
+				fwrite( mem, len, 1, fph);
+				fclose(fph);
+			}
+			mDocument->releaseDocumentMemory(mem);
+		}
+
+		html->releaseHtmlDocument(mDocument);
+	}
+
+	void generateReport(void)
+	{
 		NVSHARE::HtmlTableInterface *html = NVSHARE::getHtmlTableInterface();
 		char scratch[2048];
 		sprintf(scratch,"Executable: %s %s contains %d sections.", mExeName.c_str(), mTimeStamp.c_str(), mSections.size() );
@@ -349,17 +650,50 @@ public:
 		for (SectionBaseMap::iterator i=mSections.begin(); i!=mSections.end(); ++i)
 		{
 			SectionBase &s = (*i).second;
-			s.reportSections((*i).first,table);
+			SectionData sd;
+			s.reportSections((*i).first,sd);
+			sd.addToTable(table);
 		}
 
 		table->excludeTotals(1);
 		table->computeTotals();
 
+
+  		SubSectionDataVector subSections;
+  		ObjectDataVector	 objects;
+		FunctionDataVector functions;
 		for (SectionBaseMap::iterator i=mSections.begin(); i!=mSections.end(); ++i)
 		{
 			SectionBase &s = (*i).second;
-			s.reportDetails((*i).first, mDocument);
+			s.reportDetails((*i).first,subSections,objects,functions);
 		}
+
+		table = mDocument->createHtmlTable("Sub-Section Sizes");
+
+		table->addHeader("Section Number,Section Size,Sub-Section Name,Class Name,Address Count, Address Size");
+		table->addSort("Sorted by Section Size", 2, false, 0, false );
+		for (SubSectionDataVector::iterator i=subSections.begin(); i!=subSections.end(); ++i)
+		{
+			(*i).addToTable(table);
+		}
+
+		table->excludeTotals(1);
+		table->computeTotals();
+#if 0
+		table = mDocument->createHtmlTable("Object File Sizes");
+
+	    //                      1              2           3              4           5
+		table->addHeader("Section Number,Section Size,Sub-Section Name,Class Name,Object Size,Object Address Entries,Object Name,Object Function Count");
+		table->addSort("Sorted by Object Size", 5, false, 0, false );
+		for (ObjectDataVector::iterator i=objects.begin(); i!=objects.end(); ++i)
+		{
+			(*i).addToTable(table);
+		}
+
+		table->excludeTotals(1);
+		table->computeTotals();
+#endif
+
 
 		size_t len;
 		const char *mem = mDocument->saveDocument(len,NVSHARE::HST_SIMPLE_HTML);
@@ -400,7 +734,7 @@ public:
 					SectionBaseMap::iterator found = mSections.find( section.mSection );
 					if ( found == mSections.end() )
 					{
-						SectionBase sb;
+						SectionBase sb(section.mSection);
 						sb.addSection(section);
 						mSections[ section.mSection ] = sb;
 					}
@@ -587,6 +921,17 @@ public:
 		}
 	}
 
+	SectionBase * findSectionBase(unsigned int sectionNumber)
+	{
+		SectionBase *ret = 0;
+		SectionBaseMap::iterator found = mSections.find(sectionNumber);
+		if ( found != mSections.end() )
+		{
+			ret = &(*found).second;
+		}
+		return ret;
+	}
+
 	MapFileState			mState;
 	std::string				mExeName;
 	std::string 			mTimeStamp;
@@ -599,9 +944,17 @@ void main(int argc,const char **argv)
 	if ( argc == 2 )
 	{
 		MapFile mf(argv[1]);
+		mf.generateReport();
+	}
+	else if ( argc == 3 )
+	{
+		MapFile mf1(argv[1]);
+		MapFile mf2(argv[2]);
+		mf1.generateReport(mf2);
 	}
 	else
 	{
 		printf("Usage: MapFile <mapfileName>\r\n");
+		printf("Usage: MapFile <mapFile1> <mapFile2>\r\n");
 	}
 }
