@@ -143,7 +143,7 @@ struct Section
 
 	void reportDetails(unsigned int section,NVSHARE::HtmlDocument *document)
 	{
-#if 1
+#if 0
 		{
     		ByTypeMap byFunction;
 
@@ -210,7 +210,7 @@ struct Section
     		char scratch[2048];
     		sprintf(scratch,"Details for section %d subsection: %s class name: %s with %d OBJECTS total size of %s", section, mName, mClassName, byObject.size(), NVSHARE::formatNumber(mLength) );
     		NVSHARE::HtmlTable *table = document->createHtmlTable(scratch);
-    		table->addHeader("Size,Count,Object Name,Function Name");
+    		table->addHeader("Size,Count,Object Name,Function Count");
     		table->addSort("Sorted by size",1,false,0,false);
     		for (ByTypeMap::iterator i=byObject.begin(); i!=byObject.end(); ++i)
     		{
@@ -218,12 +218,7 @@ struct Section
     			table->addColumn( bt.mLength );
     			table->addColumn( bt.mCount );
     			table->addColumn( (*i).first.c_str() );
-
-				std::string functionNames;
-				bt.getFunctionNames(functionNames,512);
-
-    			table->addColumn( functionNames.c_str() );
-
+				table->addColumn( bt.mFunctions.size() );
     			table->nextRow();
     		}
     		table->computeTotals();
