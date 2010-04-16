@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <DbgHelp.h>
 #include <string>
+#include <set>
 #include <map>
 #include <hash_map>
 #include <vector>
@@ -47,44 +48,55 @@ struct ObjectData
 	ObjectData(void)
 	{
 		mSection = 0;
-		mSectionSize = 0;
 		mSubSectionName = "";
 		mClassName = "";
 		mObjectSize = 0;
 		mObjectAddressCount = 0;
-		mObjectName = "";
 		mObjectFunctionCount = 0;
 	}
 	unsigned int mSection;
-	unsigned int mSectionSize;
 	const char * mSubSectionName;
 	const char * mClassName;
 	int mObjectSize;
 	unsigned int mObjectAddressCount;
-	const char * mObjectName;
+	std::string	mObjectName;
 	unsigned int mObjectFunctionCount;
 
 	void addToTable(NVSHARE::HtmlTable *table)
 	{
-		table->addColumn(mSection);
-		table->addColumn(mSectionSize);
-		table->addColumn(mSubSectionName);
-		table->addColumn(mClassName);
-		table->addColumn(mObjectSize);
-		table->addColumn(mObjectAddressCount);
-		table->addColumn(mObjectName);
-		table->addColumn(mObjectFunctionCount);
-		table->nextRow();
+		if ( mObjectSize > 0 )
+		{
+			table->addColumn(mSection);
+			table->addColumn(mSubSectionName);
+			table->addColumn(mClassName);
+			table->addColumn(mObjectSize);
+			table->addColumn(mObjectAddressCount);
+			table->addColumn(mObjectName.c_str());
+			table->addColumn(mObjectFunctionCount);
+			table->nextRow();
+		}
 	}
 };
 
 struct FunctionData
 {
 	unsigned int mSection;
-	unsigned int mFunctionSize;
+	int mFunctionSize;
 	unsigned int mFunctionCount;
-	const char * mFunctionName;
-	const char * mObjectName;
+	std::string mFunctionName;
+	std::string mObjectName;
+	void addToTable(NVSHARE::HtmlTable *table)
+	{
+		if ( mFunctionSize > 0 )
+		{
+			table->addColumn(mSection);
+			table->addColumn(mFunctionSize);
+			table->addColumn(mFunctionCount);
+			table->addColumn(mFunctionName.c_str());
+			table->addColumn(mObjectName.c_str());
+			table->nextRow();
+		}
+	}
 };
 
 typedef std::vector< SubSectionData > SubSectionDataVector;
@@ -368,8 +380,8 @@ struct Section
 				fd.mSection = section;
 				fd.mFunctionSize = bt.mLength;
 				fd.mFunctionCount = bt.mCount;
-				fd.mFunctionName = (*i).first.c_str();
-				fd.mObjectName   = bt.mName.c_str();
+				fd.mFunctionName = (*i).first;
+				fd.mObjectName   = bt.mName;
 
 				flist.push_back(fd);
 
@@ -407,12 +419,11 @@ struct Section
 				ObjectData od;
 
 				od.mSection			= section;
-				od.mSectionSize		= mLength;
 				od.mSubSectionName	= mName;
 				od.mClassName		= mClassName;
 				od.mObjectSize		= bt.mLength;
 				od.mObjectAddressCount = bt.mCount;
-				od.mObjectName = (*i).first.c_str();
+				od.mObjectName = (*i).first;
 				od.mObjectFunctionCount = bt.mFunctions.size();
 				olist.push_back(od);
     		}
@@ -552,6 +563,77 @@ typedef stdext::hash_map< unsigned int, SectionBase > SectionBaseMap;
 
 typedef std::vector< SectionData > SectionDataVector;
 
+struct SubSectionDifference
+{
+	SubSectionDifference(SubSectionData *sd)
+	{
+		mPrimary = sd;
+		mSecondary = NULL;
+		mIsSecond = false;
+	}
+
+	bool operator <(const SubSectionDifference &s) const
+	{
+		if ( mPrimary->mSection < s.mPrimary->mSection ) return true;
+		if ( mPrimary->mSection > s.mPrimary->mSection ) return false;
+	    return strcmp( mPrimary->mSubSectionName, s.mPrimary->mSubSectionName ) < 0;
+	}
+
+	void addSecondary(SubSectionData *sd)
+	{
+		mSecondary = sd;
+	}
+
+	void addToTable(NVSHARE::HtmlTable *table)
+	{
+		if ( mSecondary )
+		{
+			if ( mPrimary->mSectionSize != mSecondary->mSectionSize )
+			{
+    			table->addColumn(mPrimary->mSection);
+	    		table->addColumn((int)mSecondary->mSectionSize - (int)mPrimary->mSectionSize);
+	    		table->addColumn(mPrimary->mSubSectionName);
+	    		table->addColumn(mPrimary->mClassName);
+	    		table->addColumn((int)mSecondary->mAddressCount - (int)mPrimary->mAddressCount);
+	    		table->addColumn((int)mSecondary->mAddressSize - (int)mPrimary->mAddressSize );
+	    		if ( mSecondary->mSectionSize > mPrimary->mSectionSize )
+	    		{
+    				table->addColumn("DIFF:SECONDARY GREATER");
+	    		}
+	    		else
+	    		{
+    				table->addColumn("DIFF:PRIMARY GREATER");
+	    		}
+				table->nextRow();
+			}
+		}
+		else
+		{
+    		table->addColumn(mPrimary->mSection);
+    		table->addColumn(mPrimary->mSectionSize);
+    		table->addColumn(mPrimary->mSubSectionName);
+    		table->addColumn(mPrimary->mClassName);
+    		table->addColumn(mPrimary->mAddressCount);
+    		table->addColumn(mPrimary->mAddressSize);
+    		if ( mIsSecond )
+    		{
+    			table->addColumn("SECONDARY");
+    		}
+    		else
+    		{
+    			table->addColumn("PRIMARY");
+    		}
+			table->nextRow();
+		}
+	}
+
+	SubSectionData	*mPrimary;
+	SubSectionData	*mSecondary;
+	bool			 mIsSecond;
+};
+
+typedef std::set< SubSectionDifference > SubSectionDifferenceSet;
+
 class MapFile : public NVSHARE::InPlaceParserInterface, public NVSHARE::InPlaceParser
 {
 public:
@@ -618,6 +700,72 @@ public:
 		table->excludeTotals(1);
 		table->computeTotals();
 
+//*** Gather other data
+
+  		SubSectionDataVector subSectionsA;
+  		ObjectDataVector	 objectsA;
+		FunctionDataVector functionsA;
+		for (SectionBaseMap::iterator i=mSections.begin(); i!=mSections.end(); ++i)
+		{
+			SectionBase &s = (*i).second;
+			s.reportDetails((*i).first,subSectionsA,objectsA,functionsA);
+		}
+
+  		SubSectionDataVector subSectionsB;
+  		ObjectDataVector	 objectsB;
+		FunctionDataVector functionsB;
+		for (SectionBaseMap::iterator i=mf.mSections.begin(); i!=mf.mSections.end(); ++i)
+		{
+			SectionBase &s = (*i).second;
+			s.reportDetails((*i).first,subSectionsB,objectsB,functionsB);
+		}
+
+		// ok, now sub-section difference report...
+		// First insert all of the subsections from the base map file into an STL set.
+		SubSectionDifferenceSet subSet;
+
+		for (SubSectionDataVector::iterator i=subSectionsA.begin(); i!=subSectionsA.end(); ++i)
+		{
+			SubSectionData &sd = (*i);
+			SubSectionDifference sdiff(&sd);
+			subSet.insert( sdiff );
+		}
+
+		// Now, for each subsection in the second map, see if it matches the existing one.
+		for (SubSectionDataVector::iterator i=subSectionsB.begin(); i!=subSectionsB.end(); ++i)
+		{
+			SubSectionData &sd = (*i);
+			SubSectionDifference sdiff(&sd);
+
+			SubSectionDifferenceSet::iterator found = subSet.find(sdiff);
+			if ( found == subSet.end() )
+			{
+				sdiff.mIsSecond = true;
+				subSet.insert( sdiff );
+			}
+			else
+			{
+				(*found).addSecondary(&sd);
+			}
+		}
+
+
+		table = mDocument->createHtmlTable("Sub-Section Size Differences");
+
+		table->addHeader("Section Number,Section Size,Sub-Section Name,Class Name,Address Count, Address Size,Type");
+
+		table->addSort("Sorted by Section Size", 2, false, 0, false );
+		for (SubSectionDifferenceSet::iterator i=subSet.begin(); i!=subSet.end(); ++i)
+		{
+			(*i).addToTable(table);
+		}
+
+		table->excludeTotals(1);
+		table->computeTotals();
+
+
+//****
+
 
 		size_t len;
 		const char *mem = mDocument->saveDocument(len,NVSHARE::HST_SIMPLE_HTML);
@@ -679,12 +827,12 @@ public:
 
 		table->excludeTotals(1);
 		table->computeTotals();
-#if 0
+
 		table = mDocument->createHtmlTable("Object File Sizes");
 
 	    //                      1              2           3              4           5
-		table->addHeader("Section Number,Section Size,Sub-Section Name,Class Name,Object Size,Object Address Entries,Object Name,Object Function Count");
-		table->addSort("Sorted by Object Size", 5, false, 0, false );
+		table->addHeader("Section Number,Sub-Section Name,Class Name,Object Size,Object Address Entries,Object Name,Object Function Count");
+		table->addSort("Sorted by Object Size", 4, false, 0, false );
 		for (ObjectDataVector::iterator i=objects.begin(); i!=objects.end(); ++i)
 		{
 			(*i).addToTable(table);
@@ -692,7 +840,66 @@ public:
 
 		table->excludeTotals(1);
 		table->computeTotals();
-#endif
+
+		table = mDocument->createHtmlTable("Function Sizes");
+
+		NVSHARE::HtmlTable *nxparam = mDocument->createHtmlTable("Functions with 'NxParameterized' in the name");
+
+
+		nxparam->addHeader("Section,Function Size,Function Count,Function Name,Object Name");
+		nxparam->addSort("Sorted by Function Size", 2, false, 0, false );
+		// aggregate all 'unwound' founctions...
+		int nxpTotal = 0;
+		int nxpCount = 0;
+		FunctionData *unwound = 0;
+		for (FunctionDataVector::iterator i=functions.begin(); i!=functions.end(); ++i)
+		{
+			FunctionData &fd = (*i);
+			//                                     0123456789
+			if ( strncmp(fd.mFunctionName.c_str(),"__unwind$",9) == 0 )
+			{
+				if ( unwound )
+				{
+					unwound->mFunctionSize+=fd.mFunctionSize;
+					unwound->mFunctionCount+=fd.mFunctionCount;
+					fd.mFunctionSize = 0;
+				}
+				else
+				{
+					fd.mFunctionName = "unwound code";
+					unwound = &fd;
+				}
+			}
+			else
+			{
+				const char *scan = strstr(fd.mFunctionName.c_str(),"NxParameterized");
+				if ( scan )
+				{
+					nxpTotal+=fd.mFunctionSize;
+					nxpCount+=fd.mFunctionCount;
+					fd.addToTable(nxparam);
+				}
+			}
+		}
+		if ( nxpTotal > 0 )
+		{
+			printf("Functions with the string 'NxParameterized' in them total %s in %s items.\r\n", NVSHARE::formatNumber(nxpTotal), NVSHARE::formatNumber(nxpCount));
+    		nxparam->excludeTotals(1);
+    		nxparam->computeTotals();
+		}
+
+
+	    //                    1          2           3              4           5
+		table->addHeader("Section,Function Size,Function Count,Function Name,Object Name");
+		table->addSort("Sorted by Function Size", 2, false, 0, false );
+		for (FunctionDataVector::iterator i=functions.begin(); i!=functions.end(); ++i)
+		{
+			(*i).addToTable(table);
+		}
+
+		table->excludeTotals(1);
+		table->computeTotals();
+
 
 
 		size_t len;
