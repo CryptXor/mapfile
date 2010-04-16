@@ -721,6 +721,86 @@ struct ObjectDataDifference
 
 typedef std::set< ObjectDataDifference > ObjectDataDifferenceSet;
 
+struct FunctionDataDifference
+{
+
+	FunctionDataDifference(FunctionData *p)
+	{
+		mPrimary = p;
+		mSecondary = NULL;
+		mIsSecond = false;
+	}
+
+
+	bool operator <(const FunctionDataDifference &s) const
+	{
+		// see if it is in the same section
+		if ( mPrimary->mSection < s.mPrimary->mSection ) return true;
+		if ( mPrimary->mSection > s.mPrimary->mSection ) return false;
+	    int v = strcmp( mPrimary->mObjectName.c_str(), s.mPrimary->mObjectName.c_str() );
+	    if ( v != 0 ) return v < 0;
+	    return strcmp( mPrimary->mFunctionName.c_str(), s.mPrimary->mFunctionName.c_str() ) < 0;
+	}
+
+	void addSecondary(FunctionData *sd)
+	{
+		mSecondary = sd;
+	}
+
+	void addToTable(NVSHARE::HtmlTable *table)
+	{
+		if ( mSecondary )
+		{
+			if ( mPrimary->mFunctionSize != mSecondary->mFunctionSize )
+			{
+
+    			table->addColumn(mPrimary->mSection);
+    			table->addColumn((int)mSecondary->mFunctionSize - (int)mPrimary->mFunctionSize);
+    			table->addColumn((int)mSecondary->mFunctionCount - (int)mPrimary->mFunctionCount);
+    			table->addColumn(mPrimary->mFunctionName.c_str());
+    			table->addColumn(mPrimary->mObjectName.c_str());
+
+	    		if ( mSecondary->mFunctionSize > mPrimary->mFunctionSize )
+	    		{
+    				table->addColumn("DIFF:SECONDARY GREATER");
+	    		}
+	    		else
+	    		{
+    				table->addColumn("DIFF:PRIMARY GREATER");
+	    		}
+
+				table->nextRow();
+			}
+		}
+		else
+		{
+
+			table->addColumn(mPrimary->mSection);
+			table->addColumn(mPrimary->mFunctionSize);
+			table->addColumn(mPrimary->mFunctionCount);
+			table->addColumn(mPrimary->mFunctionName.c_str());
+			table->addColumn(mPrimary->mObjectName.c_str());
+
+    		if ( mIsSecond )
+    		{
+    			table->addColumn("SECONDARY");
+    		}
+    		else
+    		{
+    			table->addColumn("PRIMARY");
+    		}
+			table->nextRow();
+		}
+	}
+
+	FunctionData	*mPrimary;
+	FunctionData	*mSecondary;
+	bool		 	mIsSecond;
+
+};
+
+typedef std::set< FunctionDataDifference > FunctionDataDifferenceSet;
+
 class MapFile : public NVSHARE::InPlaceParserInterface, public NVSHARE::InPlaceParser
 {
 public:
@@ -787,7 +867,9 @@ public:
 		table->excludeTotals(1);
 		table->computeTotals();
 
+//**************************************************
 //*** Gather other data
+//**************************************************
 
   		SubSectionDataVector subSectionsA;
   		ObjectDataVector	 objectsA;
@@ -809,7 +891,10 @@ public:
 			s.reportDetails((*i).first,subSectionsB,objectsB,functionsB);
 		}
 
+//**************************************************
 // Compute sub-section differences
+//**************************************************
+
 		// ok, now sub-section difference report...
 		// First insert all of the subsections from the base map file into an STL set.
 		printf("Computing sub-section differences.\r\n");
@@ -856,7 +941,9 @@ public:
 		table->computeTotals();
 
 
+//**************************************************
 // Compute object file differences
+//**************************************************
 		printf("Gathering object file differences.\r\n");
 
 		ObjectDataDifferenceSet objectSet;
@@ -896,6 +983,144 @@ public:
 		table->addHeader("Section Number,Sub-Section Name,Class Name,Object Size,Object Address Entries,Object Name,Object Function Count,Type");
 		table->addSort("Sorted by Object Size", 4, false, 0, false );
 		for (ObjectDataDifferenceSet::iterator i=objectSet.begin(); i!=objectSet.end(); ++i)
+		{
+			(*i).addToTable(table);
+		}
+
+		table->excludeTotals(1);
+		table->computeTotals();
+
+//**************************************************
+// Compute function differences
+//**************************************************
+
+		printf("Aggregating unrolled loop code.\r\n");
+
+		// aggregate all 'unwound' founctions...
+		int nxpTotal = 0;
+		int nxpCount = 0;
+		FunctionData *unwound = 0;
+		for (FunctionDataVector::iterator i=functionsA.begin(); i!=functionsA.end(); ++i)
+		{
+			FunctionData &fd = (*i);
+			//                                     0123456789
+			if ( strncmp(fd.mFunctionName.c_str(),"__unwind$",9) == 0 )
+			{
+				if ( unwound )
+				{
+					unwound->mFunctionSize+=fd.mFunctionSize;
+					unwound->mFunctionCount+=fd.mFunctionCount;
+					fd.mFunctionSize = 0;
+				}
+				else
+				{
+					fd.mFunctionName = "unwound code";
+					unwound = &fd;
+				}
+			}
+			else
+			{
+				const char *scan = strstr(fd.mFunctionName.c_str(),"NxParameterized");
+				if ( scan )
+				{
+					nxpTotal+=fd.mFunctionSize;
+					nxpCount+=fd.mFunctionCount;
+				}
+			}
+		}
+		printf("Aggregation results for PRIMARY .MAP file\r\n");
+		if ( nxpTotal > 0 )
+		{
+			printf("Functions with the string 'NxParameterized' in them total %s in %s items.\r\n", NVSHARE::formatNumber(nxpTotal), NVSHARE::formatNumber(nxpCount));
+		}
+
+		if ( unwound )
+		{
+			printf("Aggregated a total of %s bytes in %s unrolled loops.\r\n", NVSHARE::formatNumber(unwound->mFunctionSize), NVSHARE::formatNumber(unwound->mFunctionCount) );
+		}
+
+		nxpTotal = 0;
+		nxpCount = 0;
+		unwound = 0;
+		for (FunctionDataVector::iterator i=functionsB.begin(); i!=functionsB.end(); ++i)
+		{
+			FunctionData &fd = (*i);
+			//                                     0123456789
+			if ( strncmp(fd.mFunctionName.c_str(),"__unwind$",9) == 0 )
+			{
+				if ( unwound )
+				{
+					unwound->mFunctionSize+=fd.mFunctionSize;
+					unwound->mFunctionCount+=fd.mFunctionCount;
+					fd.mFunctionSize = 0;
+				}
+				else
+				{
+					fd.mFunctionName = "unwound code";
+					unwound = &fd;
+				}
+			}
+			else
+			{
+				const char *scan = strstr(fd.mFunctionName.c_str(),"NxParameterized");
+				if ( scan )
+				{
+					nxpTotal+=fd.mFunctionSize;
+					nxpCount+=fd.mFunctionCount;
+				}
+			}
+		}
+		printf("Aggregation results for SECONDARY .MAP file\r\n");
+		if ( nxpTotal > 0 )
+		{
+			printf("Functions with the string 'NxParameterized' in them total %s in %s items.\r\n", NVSHARE::formatNumber(nxpTotal), NVSHARE::formatNumber(nxpCount));
+		}
+
+		if ( unwound )
+		{
+			printf("Aggregated a total of %s bytes in %s unrolled loops.\r\n", NVSHARE::formatNumber(unwound->mFunctionSize), NVSHARE::formatNumber(unwound->mFunctionCount) );
+		}
+
+
+		printf("Gathering function differences.\r\n");
+
+		FunctionDataDifferenceSet functionSet;
+
+		for (FunctionDataVector::iterator i=functionsA.begin(); i!=functionsA.end(); ++i)
+		{
+			FunctionData &sd = (*i);
+			if ( sd.mFunctionSize > 0 )
+			{
+				FunctionDataDifference sdiff(&sd);
+				functionSet.insert( sdiff );
+			}
+		}
+
+		// Now, for each subsection in the second map, see if it matches the existing one.
+		for (FunctionDataVector::iterator i=functionsB.begin(); i!=functionsB.end(); ++i)
+		{
+			FunctionData &sd = (*i);
+			if ( sd.mFunctionSize > 0 )
+			{
+    			FunctionDataDifference sdiff(&sd);
+    			FunctionDataDifferenceSet::iterator found = functionSet.find(sdiff);
+    			if ( found == functionSet.end() )
+    			{
+    				sdiff.mIsSecond = true;
+    				functionSet.insert( sdiff );
+    			}
+    			else
+    			{
+    				(*found).addSecondary(&sd);
+    			}
+    		}
+		}
+
+		printf("Generating function file differences table.\r\n");
+		table = mDocument->createHtmlTable("Function Sizes");
+		table->addHeader("Section,Function Size,Function Count,Function Name,Object Name,Type");
+		table->addSort("Sorted by Function Size", 2, false, 0, false );
+		for (FunctionDataDifferenceSet::iterator i=functionSet.begin(); i!=functionSet.end(); ++i)
 		{
 			(*i).addToTable(table);
 		}
