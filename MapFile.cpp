@@ -54,6 +54,7 @@ struct ObjectData
 		mObjectAddressCount = 0;
 		mObjectFunctionCount = 0;
 	}
+
 	unsigned int mSection;
 	const char * mSubSectionName;
 	const char * mClassName;
@@ -634,6 +635,92 @@ struct SubSectionDifference
 
 typedef std::set< SubSectionDifference > SubSectionDifferenceSet;
 
+struct ObjectDataDifference
+{
+
+	ObjectDataDifference(ObjectData *p)
+	{
+		mPrimary = p;
+		mSecondary = NULL;
+		mIsSecond = false;
+	}
+
+
+	bool operator <(const ObjectDataDifference &s) const
+	{
+		// see if it is in the same section
+		if ( mPrimary->mSection < s.mPrimary->mSection ) return true;
+		if ( mPrimary->mSection > s.mPrimary->mSection ) return false;
+		// see if it is in the same sub-section
+	    int v = strcmp( mPrimary->mSubSectionName, s.mPrimary->mSubSectionName );
+	    if ( v != 0 ) return v < 0;
+	    // see if it is in the same object file
+	    return strcmp( mPrimary->mObjectName.c_str(), s.mPrimary->mObjectName.c_str() ) < 0;
+	}
+
+	void addSecondary(ObjectData *sd)
+	{
+		mSecondary = sd;
+	}
+
+	void addToTable(NVSHARE::HtmlTable *table)
+	{
+		if ( mSecondary )
+		{
+			if ( mPrimary->mObjectSize != mSecondary->mObjectSize )
+			{
+
+    			table->addColumn(mPrimary->mSection);
+    			table->addColumn(mPrimary->mSubSectionName);
+    			table->addColumn(mPrimary->mClassName);
+    			table->addColumn((int)mSecondary->mObjectSize - (int)mPrimary->mObjectSize);
+    			table->addColumn((int)mSecondary->mObjectAddressCount - (int)mPrimary->mObjectAddressCount);
+    			table->addColumn(mPrimary->mObjectName.c_str());
+    			table->addColumn((int)mSecondary->mObjectFunctionCount - (int)mPrimary->mObjectFunctionCount);
+
+	    		if ( mSecondary->mObjectSize > mPrimary->mObjectSize )
+	    		{
+    				table->addColumn("DIFF:SECONDARY GREATER");
+	    		}
+	    		else
+	    		{
+    				table->addColumn("DIFF:PRIMARY GREATER");
+	    		}
+
+				table->nextRow();
+			}
+		}
+		else
+		{
+
+			table->addColumn(mPrimary->mSection);
+			table->addColumn(mPrimary->mSubSectionName);
+			table->addColumn(mPrimary->mClassName);
+			table->addColumn(mPrimary->mObjectSize);
+			table->addColumn(mPrimary->mObjectAddressCount);
+			table->addColumn(mPrimary->mObjectName.c_str());
+			table->addColumn(mPrimary->mObjectFunctionCount);
+
+    		if ( mIsSecond )
+    		{
+    			table->addColumn("SECONDARY");
+    		}
+    		else
+    		{
+    			table->addColumn("PRIMARY");
+    		}
+			table->nextRow();
+		}
+	}
+
+	ObjectData	*mPrimary;
+	ObjectData	*mSecondary;
+	bool		 mIsSecond;
+
+};
+
+typedef std::set< ObjectDataDifference > ObjectDataDifferenceSet;
+
 class MapFile : public NVSHARE::InPlaceParserInterface, public NVSHARE::InPlaceParser
 {
 public:
@@ -711,6 +798,8 @@ public:
 			s.reportDetails((*i).first,subSectionsA,objectsA,functionsA);
 		}
 
+		printf("Gathering data for comparison.\r\n");
+
   		SubSectionDataVector subSectionsB;
   		ObjectDataVector	 objectsB;
 		FunctionDataVector functionsB;
@@ -720,8 +809,11 @@ public:
 			s.reportDetails((*i).first,subSectionsB,objectsB,functionsB);
 		}
 
+// Compute sub-section differences
 		// ok, now sub-section difference report...
 		// First insert all of the subsections from the base map file into an STL set.
+		printf("Computing sub-section differences.\r\n");
+
 		SubSectionDifferenceSet subSet;
 
 		for (SubSectionDataVector::iterator i=subSectionsA.begin(); i!=subSectionsA.end(); ++i)
@@ -750,10 +842,10 @@ public:
 		}
 
 
+		printf("Generating sub-section differences table.\r\n");
+
 		table = mDocument->createHtmlTable("Sub-Section Size Differences");
-
 		table->addHeader("Section Number,Section Size,Sub-Section Name,Class Name,Address Count, Address Size,Type");
-
 		table->addSort("Sorted by Section Size", 2, false, 0, false );
 		for (SubSectionDifferenceSet::iterator i=subSet.begin(); i!=subSet.end(); ++i)
 		{
@@ -764,7 +856,53 @@ public:
 		table->computeTotals();
 
 
-//****
+// Compute object file differences
+		printf("Gathering object file differences.\r\n");
+
+		ObjectDataDifferenceSet objectSet;
+
+		for (ObjectDataVector::iterator i=objectsA.begin(); i!=objectsA.end(); ++i)
+		{
+			ObjectData &sd = (*i);
+			if ( sd.mObjectSize > 0 )
+			{
+				ObjectDataDifference sdiff(&sd);
+				objectSet.insert( sdiff );
+			}
+		}
+
+		// Now, for each subsection in the second map, see if it matches the existing one.
+		for (ObjectDataVector::iterator i=objectsB.begin(); i!=objectsB.end(); ++i)
+		{
+			ObjectData &sd = (*i);
+			if ( sd.mObjectSize > 0 )
+			{
+    			ObjectDataDifference sdiff(&sd);
+    			ObjectDataDifferenceSet::iterator found = objectSet.find(sdiff);
+    			if ( found == objectSet.end() )
+    			{
+    				sdiff.mIsSecond = true;
+    				objectSet.insert( sdiff );
+    			}
+    			else
+    			{
+    				(*found).addSecondary(&sd);
+    			}
+    		}
+		}
+
+		printf("Generating object file differences table.\r\n");
+		table = mDocument->createHtmlTable("Object File Differences");
+		table->addHeader("Section Number,Sub-Section Name,Class Name,Object Size,Object Address Entries,Object Name,Object Function Count,Type");
+		table->addSort("Sorted by Object Size", 4, false, 0, false );
+		for (ObjectDataDifferenceSet::iterator i=objectSet.begin(); i!=objectSet.end(); ++i)
+		{
+			(*i).addToTable(table);
+		}
+
+		table->excludeTotals(1);
+		table->computeTotals();
+
 
 
 		size_t len;
