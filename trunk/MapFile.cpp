@@ -123,6 +123,13 @@ public:
 	{
 		mMatched = false;
 	}
+
+	bool operator <(const BasicAddress &s) const
+	{
+		return mAddress < s.mAddress;
+	}
+
+
 	unsigned int mAddress;
 	unsigned int mSection;
 	std::string  mFunctionName;
@@ -319,16 +326,10 @@ struct Section
 		assert( ba.mSection == mSection );
 		if ( ba.mAddress >= mAddress && ba.mAddress < (mAddress+mLength) )
 		{
-			if ( !mAddresses.empty() )
-			{
-				size_t index = mAddresses.size()-1;
-				mAddresses[index].mLength = ba.mAddress - mAddresses[index].mAddress;
-			}
-			ba.mLength = (mAddress+mLength)-ba.mAddress; // distance from the end of this section is default length
 			mAddresses.push_back(ba);
-
 			ret = true;
 		}
+
 		return ret;
 	}
 
@@ -458,6 +459,22 @@ struct Section
 		return ret;
 	}
 
+	void computeSizes(void)
+	{
+		if ( !mAddresses.empty() )
+		{
+			std::sort(mAddresses.begin(), mAddresses.end() );
+			int count = mAddresses.size();
+			for (int i=0; i<(count-1); i++)
+			{
+				BasicAddress &ba = mAddresses[i];
+				ba.mLength = mAddresses[i+1].mAddress - ba.mAddress;
+			}
+			BasicAddress &ba = mAddresses[count-1];
+			ba.mLength = mLength - (ba.mAddress - mAddress);
+		}
+	}
+
 	unsigned int		mLength;
 	unsigned int    	mSection;
 	unsigned int		mAddress;
@@ -551,6 +568,14 @@ struct SectionBase
 			}
 		}
 		return ret;
+	}
+
+	void computeSizes(void)
+	{
+		for (SectionVector::iterator i=mSections.begin(); i!=mSections.end(); ++i)
+		{
+			(*i).computeSizes();
+		}
 	}
 
 	unsigned int    mSectionNumber;
@@ -809,6 +834,10 @@ public:
 		NVSHARE::InPlaceParser::SetFile(fname);
 		mState = MFS_BEGIN;
 		NVSHARE::InPlaceParser::Parse(this);
+		for (SectionBaseMap::iterator i=mSections.begin(); i!=mSections.end(); ++i)
+		{
+			(*i).second.computeSizes();
+		}
 	}
 
 	// generate a report which represents a difference between two map files...
