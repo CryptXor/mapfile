@@ -1158,20 +1158,39 @@ public:
 		table->computeTotals();
 
 
-
-		size_t len;
-		const char *mem = mDocument->saveDocument(len,NVSHARE::HST_SIMPLE_HTML);
-		if ( mem )
+		
 		{
-			printf("Saving to '%s'\n", "output.html" );
-			FILE *fph = fopen("output.html", "wb");
-			if ( fph )
+			size_t len;
+			const char *mem = mDocument->saveDocument(len,NVSHARE::HST_SIMPLE_HTML);
+			if ( mem )
 			{
-				fwrite( mem, len, 1, fph);
-				fclose(fph);
+				printf("Saving to '%s'\n", "output.html" );
+				FILE *fph = fopen("output.html", "wb");
+				if ( fph )
+				{
+					fwrite( mem, len, 1, fph);
+					fclose(fph);
+				}
+				mDocument->releaseDocumentMemory(mem);
 			}
-			mDocument->releaseDocumentMemory(mem);
 		}
+
+		{
+			size_t len;
+			const char *mem = mDocument->saveDocument(len,NVSHARE::HST_CSV);
+			if ( mem )
+			{
+				printf("Saving to '%s'\n", "output.csv" );
+				FILE *fph = fopen("output.csv", "wb");
+				if ( fph )
+				{
+					fwrite( mem, len, 1, fph);
+					fclose(fph);
+				}
+				mDocument->releaseDocumentMemory(mem);
+			}
+		}
+
 
 		html->releaseHtmlDocument(mDocument);
 	}
