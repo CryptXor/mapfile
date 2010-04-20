@@ -22,6 +22,120 @@
 class MapFile;
 struct SectionBase;
 
+struct Summary
+{
+	Summary(void)
+	{
+		mPrimarySize = 0;
+		mPrimaryCount = 0;
+
+		mSecondarySize = 0;
+		mSecondaryCount = 0;
+
+		mSecondaryGreaterSize = 0;
+		mSecondaryGreaterCount = 0;
+
+		mPrimaryGreaterSize = 0;
+		mPrimaryGreaterCount = 0;
+
+		mSameSize = 0;
+		mSameCount = 0;
+
+		mSGPrimarySize = 0;
+		mSGSecondarySize = 0;
+
+		mPGPrimarySize = 0;
+		mPGSecondarySize = 0;
+
+		mSGPrimaryCount = 0;
+		mSGSecondaryCount = 0;
+
+		mPGPrimaryCount = 0;
+		mPGSecondaryCount = 0;
+	}
+
+	void addToTable(NVSHARE::HtmlTable *table)
+	{
+		table->addColumn("[1] Primary Only");
+		table->addColumn(mPrimarySize);
+		table->addColumn(mPrimaryCount);
+		table->addColumn(0);
+		table->addColumn(0);
+		table->addColumn(-mPrimarySize);
+		table->addColumn(-mPrimaryCount);
+		table->nextRow();
+
+		table->addColumn("[2] Secondary Only");
+		table->addColumn(0);
+		table->addColumn(0);
+		table->addColumn(mSecondarySize);
+		table->addColumn(mSecondaryCount);
+		table->addColumn(mSecondarySize);
+		table->addColumn(mSecondaryCount);
+		table->nextRow();
+
+		table->addColumn("[3] Secondary Greater");
+		table->addColumn(mSGPrimarySize);
+		table->addColumn(mSGPrimaryCount);
+		table->addColumn(mSGSecondarySize);
+		table->addColumn(mSGSecondaryCount);
+		table->addColumn(mSecondaryGreaterSize);
+		table->addColumn(mSecondaryGreaterCount);
+		table->nextRow();
+
+		table->addColumn("[4] Primary Greater");
+		table->addColumn(mPGPrimarySize);
+		table->addColumn(mPGPrimaryCount);
+
+		table->addColumn(mPGSecondarySize);
+		table->addColumn(mPGSecondaryCount);
+
+		table->addColumn(-mPrimaryGreaterSize);
+		table->addColumn(-mPrimaryGreaterCount);
+		table->nextRow();
+
+		table->addColumn("[5] Same Size");
+		table->addColumn(mSameSize);
+		table->addColumn(mSameCount);
+		table->addColumn(mSameSize);
+		table->addColumn(mSameCount);
+		table->addColumn(0);
+		table->addColumn(mSameCount);
+		table->nextRow();
+
+
+	}
+	int	mPrimarySize;
+	int mPrimaryCount;
+	int mSecondarySize;
+	int mSecondaryCount;
+
+	int mSGPrimarySize;
+	int mSGSecondarySize;
+	int mSGPrimaryCount;
+	int mSGSecondaryCount;
+	int mSecondaryGreaterSize;
+	int mSecondaryGreaterCount;
+
+	int mPGPrimarySize;
+	int mPGSecondarySize;
+	int mPGPrimaryCount;
+	int mPGSecondaryCount;
+	int mPrimaryGreaterSize;
+	int mPrimaryGreaterCount;
+	int mSameSize;
+	int mSameCount;
+};
+
+enum FunctionReport
+{
+	FR_ONLY_PRIMARY,
+	FR_ONLY_SECONDARY,
+	FR_PRIMARY_GREATER,
+	FR_SECONDARY_GREATER,
+	FR_SAME,
+};
+
 struct SubSectionData
 {
 	unsigned int mSection;
@@ -86,6 +200,7 @@ struct FunctionData
 	unsigned int mFunctionCount;
 	std::string mFunctionName;
 	std::string mObjectName;
+
 	void addToTable(NVSHARE::HtmlTable *table)
 	{
 		if ( mFunctionSize > 0 )
@@ -762,8 +877,14 @@ struct FunctionDataDifference
 		// see if it is in the same section
 		if ( mPrimary->mSection < s.mPrimary->mSection ) return true;
 		if ( mPrimary->mSection > s.mPrimary->mSection ) return false;
-	    int v = strcmp( mPrimary->mObjectName.c_str(), s.mPrimary->mObjectName.c_str() );
-	    if ( v != 0 ) return v < 0;
+		// only compare the object name if there is more than one funtion of this name present.
+#if 0
+		if ( mPrimary->mFunctionCount > 1 || s.mPrimary->mFunctionCount > 1 )
+		{
+			int v = strcmp( mPrimary->mObjectName.c_str(), s.mPrimary->mObjectName.c_str() );
+			if ( v != 0 ) return v < 0;
+		}
+#endif
 	    return strcmp( mPrimary->mFunctionName.c_str(), s.mPrimary->mFunctionName.c_str() ) < 0;
 	}
 
@@ -772,50 +893,146 @@ struct FunctionDataDifference
 		mSecondary = sd;
 	}
 
-	void addToTable(NVSHARE::HtmlTable *table)
+	// accumulate totals into the summary result structure
+	void addToSummary(Summary &s)
 	{
 		if ( mSecondary )
 		{
-			if ( mPrimary->mFunctionSize != mSecondary->mFunctionSize )
+			if ( mSecondary->mFunctionSize == mPrimary->mFunctionSize ) // if they are the same size, accumulate the same size totals
 			{
+				s.mSameSize+=mSecondary->mFunctionSize;
+				s.mSameSize+=mSecondary->mFunctionCount;
+			}
+			else if ( mSecondary->mFunctionSize > mPrimary->mFunctionSize ) // if the secondary is greater than the primary, accmulate totals
+			{
+				s.mSGPrimarySize+=mPrimary->mFunctionSize;
+				s.mSGPrimaryCount+=mPrimary->mFunctionCount;
+				s.mSGSecondarySize+=mSecondary->mFunctionSize;
+				s.mSGSecondaryCount+=mSecondary->mFunctionCount;
+				s.mSecondaryGreaterSize+= (mSecondary->mFunctionSize - mPrimary->mFunctionSize );
+				s.mSecondaryGreaterCount+= (mSecondary->mFunctionCount - mPrimary->mFunctionCount );
+			}
+			else // primary is greater than the secondary, accmulate totals
+			{
+				s.mPGPrimarySize+=mPrimary->mFunctionSize;
+				s.mPGPrimaryCount+=mPrimary->mFunctionCount;
 
-    			table->addColumn(mPrimary->mSection);
-    			table->addColumn((int)mSecondary->mFunctionSize - (int)mPrimary->mFunctionSize);
-    			table->addColumn((int)mSecondary->mFunctionCount - (int)mPrimary->mFunctionCount);
-    			table->addColumn(mPrimary->mFunctionName.c_str());
-    			table->addColumn(mPrimary->mObjectName.c_str());
+				s.mPGSecondarySize+=mSecondary->mFunctionSize;
+				s.mPGSecondaryCount+=mSecondary->mFunctionCount;
 
-	    		if ( mSecondary->mFunctionSize > mPrimary->mFunctionSize )
-	    		{
-    				table->addColumn("DIFF:SECONDARY GREATER");
-	    		}
-	    		else
-	    		{
-    				table->addColumn("DIFF:PRIMARY GREATER");
-	    		}
-
-				table->nextRow();
+				s.mPrimaryGreaterSize+= (mPrimary->mFunctionSize - mSecondary->mFunctionSize );
+				s.mPrimaryGreaterCount+= (mPrimary->mFunctionCount - mSecondary->mFunctionCount );
 			}
 		}
 		else
 		{
+			if ( mIsSecond )
+			{
+				s.mSecondarySize+=mPrimary->mFunctionSize;
+				s.mSecondaryCount+=mPrimary->mFunctionCount;
+			}
+			else
+			{
+				s.mPrimarySize+=mPrimary->mFunctionSize;
+				s.mPrimaryCount+=mPrimary->mFunctionCount;
+			}
+		}
+	}
 
-			table->addColumn(mPrimary->mSection);
-			table->addColumn(mPrimary->mFunctionSize);
-			table->addColumn(mPrimary->mFunctionCount);
-			table->addColumn(mPrimary->mFunctionName.c_str());
-			table->addColumn(mPrimary->mObjectName.c_str());
+	void addToTable(NVSHARE::HtmlTable *table,FunctionReport type)
+	{
 
-    		if ( mIsSecond )
+		bool display = false;
+		switch ( type )
+		{
+			case FR_SAME:
+				if ( mSecondary && mPrimary->mFunctionSize == mSecondary->mFunctionSize )
+				{
+					display = true;
+				}
+				break;
+			case FR_ONLY_PRIMARY:
+				if ( mSecondary == NULL && !mIsSecond )
+				{
+					display = true;
+				}
+				break;
+			case FR_ONLY_SECONDARY:
+				if ( mSecondary == NULL && mIsSecond )
+				{
+					display = true;
+				}
+				break;
+			case FR_PRIMARY_GREATER:
+				if ( mSecondary && mSecondary->mFunctionSize < mPrimary->mFunctionSize )
+				{
+					display = true;
+				}
+				break;
+			case FR_SECONDARY_GREATER:
+				if ( mSecondary && mSecondary->mFunctionSize > mPrimary->mFunctionSize )
+				{
+					display = true;
+				}
+				break;
+		}
+		if ( display )
+		{
+    		if ( mSecondary )
     		{
-    			table->addColumn("SECONDARY");
+    			{
+
+        			table->addColumn(mPrimary->mSection);
+					if ( type == FR_SAME )
+					{
+        				table->addColumn(mPrimary->mFunctionSize);
+        				table->addColumn(mPrimary->mFunctionCount);
+					}
+					else
+					{
+        				table->addColumn((int)mSecondary->mFunctionSize - (int)mPrimary->mFunctionSize);
+        				table->addColumn((int)mSecondary->mFunctionCount - (int)mPrimary->mFunctionCount);
+        			}
+
+        			table->addColumn(mPrimary->mFunctionName.c_str());
+        			table->addColumn(mPrimary->mObjectName.c_str());
+
+    	    		if ( mSecondary->mFunctionSize > mPrimary->mFunctionSize )
+    	    		{
+        				table->addColumn("DIFF:SECONDARY GREATER");
+    	    		}
+    	    		else if ( mSecondary->mFunctionSize ==  mPrimary->mFunctionSize )
+    	    		{
+        				table->addColumn("SAME");
+    	    		}
+    	    		else
+    	    		{
+        				table->addColumn("DIFF:PRIMARY GREATER");
+    	    		}
+
+    				table->nextRow();
+    			}
     		}
     		else
     		{
-    			table->addColumn("PRIMARY");
+
+    			table->addColumn(mPrimary->mSection);
+    			table->addColumn(mPrimary->mFunctionSize);
+    			table->addColumn(mPrimary->mFunctionCount);
+    			table->addColumn(mPrimary->mFunctionName.c_str());
+    			table->addColumn(mPrimary->mObjectName.c_str());
+
+        		if ( mIsSecond )
+        		{
+        			table->addColumn("SECONDARY");
+        		}
+        		else
+        		{
+        			table->addColumn("PRIMARY");
+        		}
+    			table->nextRow();
     		}
-			table->nextRow();
-		}
+    	}
 	}
 
 	FunctionData	*mPrimary;
@@ -1007,18 +1224,6 @@ public:
     		}
 		}
 
-		printf("Generating object file differences table.\r\n");
-		table = mDocument->createHtmlTable("Object File Differences");
-		table->addHeader("Section Number,Sub-Section Name,Class Name,Object Size,Object Address Entries,Object Name,Object Function Count,Type");
-		table->addSort("Sorted by Object Size", 4, false, 0, false );
-		for (ObjectDataDifferenceSet::iterator i=objectSet.begin(); i!=objectSet.end(); ++i)
-		{
-			(*i).addToTable(table);
-		}
-
-		table->excludeTotals(1);
-		table->computeTotals();
-
 //**************************************************
 // Compute function differences
 //**************************************************
@@ -1029,6 +1234,8 @@ public:
 		int nxpTotal = 0;
 		int nxpCount = 0;
 		FunctionData *unwound = 0;
+		FunctionData *fcatch = 0;
+		FunctionData *freal = 0;
 		for (FunctionDataVector::iterator i=functionsA.begin(); i!=functionsA.end(); ++i)
 		{
 			FunctionData &fd = (*i);
@@ -1044,6 +1251,7 @@ public:
 				else
 				{
 					fd.mFunctionName = "unwound code";
+					fd.mObjectName = "unwind_code";
 					unwound = &fd;
 				}
 			}
@@ -1056,6 +1264,43 @@ public:
 					nxpCount+=fd.mFunctionCount;
 				}
 			}
+
+			//                                     0123456789
+			if ( strncmp(fd.mFunctionName.c_str(),"__catch$",8) == 0 )
+			{
+				if ( fcatch )
+				{
+					fcatch->mFunctionSize+=fd.mFunctionSize;
+					fcatch->mFunctionCount+=fd.mFunctionCount;
+					fd.mFunctionSize = 0;
+				}
+				else
+				{
+					fd.mFunctionName = "catch code";
+					fd.mObjectName = "catch_code";
+					fcatch = &fd;
+				}
+			}
+
+			//                                     0123456
+			if ( strncmp(fd.mFunctionName.c_str(),"__real@",7) == 0 )
+			{
+				if ( freal )
+				{
+					freal->mFunctionSize+=fd.mFunctionSize;
+					freal->mFunctionCount+=fd.mFunctionCount;
+					fd.mFunctionSize = 0;
+				}
+				else
+				{
+					fd.mFunctionName = "@real code";
+					fd.mObjectName = "@real_code";
+					freal = &fd;
+				}
+			}
+
+
+
 		}
 		printf("Aggregation results for PRIMARY .MAP file\r\n");
 		if ( nxpTotal > 0 )
@@ -1071,6 +1316,8 @@ public:
 		nxpTotal = 0;
 		nxpCount = 0;
 		unwound = 0;
+		fcatch = 0;
+		freal = 0;
 		for (FunctionDataVector::iterator i=functionsB.begin(); i!=functionsB.end(); ++i)
 		{
 			FunctionData &fd = (*i);
@@ -1086,6 +1333,7 @@ public:
 				else
 				{
 					fd.mFunctionName = "unwound code";
+					fd.mObjectName = "unwind_code";
 					unwound = &fd;
 				}
 			}
@@ -1098,6 +1346,41 @@ public:
 					nxpCount+=fd.mFunctionCount;
 				}
 			}
+
+			//                                     0123456789
+			if ( strncmp(fd.mFunctionName.c_str(),"__catch$",8) == 0 )
+			{
+				if ( fcatch )
+				{
+					fcatch->mFunctionSize+=fd.mFunctionSize;
+					fcatch->mFunctionCount+=fd.mFunctionCount;
+					fd.mFunctionSize = 0;
+				}
+				else
+				{
+					fd.mFunctionName = "catch code";
+					fd.mObjectName = "catch_code";
+					fcatch = &fd;
+				}
+			}
+
+			if ( strncmp(fd.mFunctionName.c_str(),"__real@",7) == 0 )
+			{
+				if ( freal )
+				{
+					freal->mFunctionSize+=fd.mFunctionSize;
+					freal->mFunctionCount+=fd.mFunctionCount;
+					fd.mFunctionSize = 0;
+				}
+				else
+				{
+					fd.mFunctionName = "@real code";
+					fd.mObjectName = "@real_code";
+					freal = &fd;
+				}
+			}
+
+
 		}
 		printf("Aggregation results for SECONDARY .MAP file\r\n");
 		if ( nxpTotal > 0 )
@@ -1145,20 +1428,92 @@ public:
     		}
 		}
 
-		printf("Generating function file differences table.\r\n");
-		table = mDocument->createHtmlTable("Function Sizes");
+		printf("Generating function summary table.\r\n");
+		table = mDocument->createHtmlTable("Summary Report of the Function/Symbol table differences between the two .MAP files");
+		//                      1          2            3             4              5                6                7
+		table->addHeader("Summary/Type,Primary/Size,Primary/Count,Secondary/Size,Secondary/Count,Difference/Size,Difference/Count");
+		Summary s;
+		table->addSort("Sorted by Summary Type", 1, true, 0, false );
+		for (FunctionDataDifferenceSet::iterator i=functionSet.begin(); i!=functionSet.end(); ++i)
+		{
+			(*i).addToSummary(s);
+		}
+		s.addToTable(table);
+		table->computeTotals();
+
+		{
+			printf("Generating object file differences table.\r\n");
+			table = mDocument->createHtmlTable("Difference in Object Files between the two .MAP files");
+			table->addHeader("Section Number,Sub-Section Name,Class Name,Object Size,Object Address Entries,Object Name,Object Function Count,Type");
+			table->addSort("Sorted by Object Size", 4, false, 0, false );
+			for (ObjectDataDifferenceSet::iterator i=objectSet.begin(); i!=objectSet.end(); ++i)
+			{
+				(*i).addToTable(table);
+			}
+
+			table->excludeTotals(1);
+			table->computeTotals();
+		}
+
+
+		printf("Generating function primary table.\r\n");
+		table = mDocument->createHtmlTable("Functions/Symbols which only exist int the Primary Map File");
 		table->addHeader("Section,Function Size,Function Count,Function Name,Object Name,Type");
 		table->addSort("Sorted by Function Size", 2, false, 0, false );
 		for (FunctionDataDifferenceSet::iterator i=functionSet.begin(); i!=functionSet.end(); ++i)
 		{
-			(*i).addToTable(table);
+			(*i).addToTable(table,FR_ONLY_PRIMARY);
 		}
 
-		table->excludeTotals(1);
+		table->computeTotals();
+
+		printf("Generating function secondary table.\r\n");
+		table = mDocument->createHtmlTable("Function/Symbols which only exist in the Secondary Map File");
+		table->addHeader("Section,Function Size,Function Count,Function Name,Object Name,Type");
+		table->addSort("Sorted by Function Size", 2, false, 0, false );
+		for (FunctionDataDifferenceSet::iterator i=functionSet.begin(); i!=functionSet.end(); ++i)
+		{
+			(*i).addToTable(table,FR_ONLY_SECONDARY);
+		}
+
+		table->computeTotals();
+
+		printf("Generating function primary greater table.\r\n");
+		table = mDocument->createHtmlTable("Function/Symbols which are Larger in the Primary MAP File");
+		table->addHeader("Section,Function Size,Function Count,Function Name,Object Name,Type");
+		table->addSort("Sorted by Function Size", 2, false, 0, false );
+		for (FunctionDataDifferenceSet::iterator i=functionSet.begin(); i!=functionSet.end(); ++i)
+		{
+			(*i).addToTable(table,FR_PRIMARY_GREATER);
+		}
+
+		table->computeTotals();
+
+		printf("Generating function secondary greater table.\r\n");
+		table = mDocument->createHtmlTable("Function/Suymbols which are larger in the Secondary MAP File");
+		table->addHeader("Section,Function Size,Function Count,Function Name,Object Name,Type");
+		table->addSort("Sorted by Function Size", 2, false, 0, false );
+		for (FunctionDataDifferenceSet::iterator i=functionSet.begin(); i!=functionSet.end(); ++i)
+		{
+			(*i).addToTable(table,FR_SECONDARY_GREATER);
+		}
+
 		table->computeTotals();
 
 
-		
+		printf("Generating functions same size table.\r\n");
+		table = mDocument->createHtmlTable("Functions/Symbols which are the Same Size between both the Primary and Secondary .MAP files");
+		table->addHeader("Section,Function Size,Function Count,Function Name,Object Name,Type");
+		table->addSort("Sorted by Function Size", 2, false, 0, false );
+		for (FunctionDataDifferenceSet::iterator i=functionSet.begin(); i!=functionSet.end(); ++i)
+		{
+			(*i).addToTable(table,FR_SAME);
+		}
+
+		table->computeTotals();
+
+
+
 		{
 			size_t len;
 			const char *mem = mDocument->saveDocument(len,NVSHARE::HST_SIMPLE_HTML);
@@ -1389,6 +1744,7 @@ public:
 						name = scratch;
 					}
 
+
 					char objectName[2048];
 					objectName[0] = 0;
 					int index = 3;
@@ -1415,6 +1771,19 @@ public:
 							*scan = ']';
 						scan++;
 					}
+#if 1
+					const char *str = strstr(name,"scalar deleting destructor");
+					if ( str )
+					{
+						char *stomp = (char *)str;
+						stomp[0] = 'v';
+						stomp[1] = 'e';
+						stomp[2] = 'c';
+						stomp[3] = 't';
+						stomp[4] = 'o';
+						stomp[5] = 'r';
+					}
+#endif
 
 					BasicAddress ba;
 					ba.mAddress = adr;
@@ -1422,6 +1791,7 @@ public:
 					ba.mObjectName = objectName;
 					ba.mFunctionName = name;
 					ba.mLength = 0;
+
 
 					addBasicAddress(ba);
 
